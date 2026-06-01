@@ -1,0 +1,4 @@
+chat_model_name: qwen3-max
+embedding_model_name: text-embedding-v4
+api_key: you_key
+external_data_path: data/external/records.csv
