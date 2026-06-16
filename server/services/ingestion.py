@@ -1,3 +1,13 @@
+"""知识库离线导入服务。
+
+把 data/ 下的 txt/pdf：
+1. 读取文本
+2. 切片
+3. 做安全清洗
+4. 计算 embedding
+5. 写入 knowledge_documents / knowledge_chunks
+"""
+
 import csv
 from pathlib import Path
 from typing import Iterable
@@ -14,6 +24,8 @@ from server.services.rag import rag_service
 
 
 class IngestionService:
+    """知识导入服务。"""
+
     def __init__(self) -> None:
         self.settings = get_settings()
         self.splitter = RecursiveCharacterTextSplitter(
@@ -23,6 +35,7 @@ class IngestionService:
         )
 
     def ingest(self, db: Session, path: str | None = None, category: str = "general", tags: list[str] | None = None) -> dict:
+        """执行一次知识导入任务。"""
         target = Path(path or self.settings.data_path)
         tags = tags or []
 
@@ -103,9 +116,11 @@ class IngestionService:
             raise
 
     def has_knowledge(self, db: Session) -> bool:
+        """判断知识库里是否已经有 chunk 数据。"""
         return db.scalar(select(KnowledgeChunk.id).limit(1)) is not None
 
     def _iter_source_files(self, target: Path) -> Iterable[Path]:
+        """遍历待导入的 txt/pdf 文件。"""
         if target.is_file():
             yield target
             return
@@ -113,6 +128,7 @@ class IngestionService:
             yield from target.rglob(pattern)
 
     def _read_text(self, file_path: Path) -> str:
+        """按文件类型读取原始文本。"""
         if file_path.suffix.lower() == ".txt":
             return file_path.read_text(encoding="utf-8")
         if file_path.suffix.lower() == ".pdf":

@@ -1,3 +1,12 @@
+"""认证与授权服务。
+
+这层对应 Java 项目里常见的 AuthService / TokenService：
+1. 校验用户名密码
+2. 生成 JWT
+3. 管理 refresh token 会话
+4. 构建当前请求的权限上下文
+"""
+
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -19,10 +28,17 @@ from server.schemas.common import AuthContext
 
 
 class AuthService:
+    """认证服务。"""
+
     def __init__(self) -> None:
         self.settings = get_settings()
 
     def build_auth_context(self, user: User) -> AuthContext:
+        """把数据库用户对象转换成运行时权限上下文。
+
+        后续 LangGraph 和业务服务都不直接依赖 ORM User，
+        而是依赖这个更轻量的 AuthContext。
+        """
         roles = [role.name for role in user.roles]
         permissions = sorted(
             {
@@ -41,6 +57,7 @@ class AuthService:
         )
 
     def authenticate(self, db: Session, username: str, password: str) -> tuple[User, AuthContext]:
+        """登录时校验用户名密码。"""
         stmt = (
             select(User)
             .options(selectinload(User.roles).selectinload(Role.permissions))
@@ -52,6 +69,7 @@ class AuthService:
         return user, self.build_auth_context(user)
 
     def login(self, db: Session, username: str, password: str) -> dict:
+        """登录并签发 access token / refresh token。"""
         user, auth_context = self.authenticate(db, username, password)
         session = UserSession(
             user_id=user.id,
@@ -74,6 +92,7 @@ class AuthService:
         }
 
     def refresh(self, db: Session, refresh_token: str) -> dict:
+        """根据 refresh token 刷新 access token。"""
         payload = decode_token(refresh_token)
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
@@ -111,6 +130,7 @@ class AuthService:
         }
 
     def get_user_from_access_token(self, db: Session, access_token: str) -> tuple[User, AuthContext]:
+        """解析 access token，并回库补齐角色和权限。"""
         payload = decode_token(access_token)
         if payload.get("type") != "access":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
@@ -128,6 +148,7 @@ class AuthService:
         return user, self.build_auth_context(user)
 
     def ensure_password(self, db: Session, username: str, password: str) -> None:
+        """兼容旧账号时，必要时重写密码哈希。"""
         user = db.scalar(select(User).where(User.username == username))
         if user and not user.password_hash.startswith("$2"):
             user.password_hash = hash_password(password)

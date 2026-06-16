@@ -1,3 +1,10 @@
+"""全局配置中心。
+
+对于 Java 背景，可以把它理解成：
+- Spring Boot 的 @ConfigurationProperties
+- 所有环境变量/默认值的统一入口
+"""
+
 from functools import lru_cache
 from pathlib import Path
 
@@ -9,6 +16,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
+    """项目运行配置。
+
+    这里把“数据库、JWT、模型、RAG 参数、数据目录”集中定义，
+    避免这些参数散落在各个模块里。
+    """
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -55,4 +67,8 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    """返回全局单例配置。
+
+    配置通常在一个进程内只需要解析一次，因此这里做缓存。
+    """
     return Settings()

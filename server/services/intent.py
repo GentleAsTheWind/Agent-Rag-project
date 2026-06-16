@@ -1,3 +1,9 @@
+"""意图识别服务。
+
+当前版本先用规则分类，目的是把业务链路跑通。
+后续可以替换成“大模型分类 + 结构化输出”。
+"""
+
 import re
 
 from server.schemas.common import IntentResult
@@ -12,10 +18,19 @@ PRODUCT_PATTERNS = ("扫地机器人", "扫拖", "机器人", "拖地", "吸力"
 
 
 class IntentService:
+    """把用户输入归类为可路由的业务意图。"""
+
     month_pattern = re.compile(r"(20\d{2})[-年/.](0?[1-9]|1[0-2])")
     account_pattern = re.compile(r"\b(10\d{2}|20\d{2}|30\d{2}|40\d{2}|50\d{2}|90\d{2})\b")
 
     def classify(self, message: str, client_context: dict | None = None) -> IntentResult:
+        """返回结构化意图结果。
+
+        除了 intent，还会抽取：
+        - month
+        - target_account_code
+        - risk_level
+        """
         text = message.strip()
         lowered = text.lower()
         client_context = client_context or {}
@@ -51,6 +66,7 @@ class IntentService:
         return IntentResult(intent="unknown", confidence=0.35, risk_level=risk_level)
 
     def _extract_month(self, text: str) -> str | None:
+        """从自然语言里提取 YYYY-MM。"""
         match = self.month_pattern.search(text)
         if not match:
             return None
@@ -58,6 +74,7 @@ class IntentService:
         return f"{year}-{int(month):02d}"
 
     def _extract_account_code(self, text: str) -> str | None:
+        """从文本里提取业务账号。"""
         match = self.account_pattern.search(text)
         return match.group(1) if match else None
 

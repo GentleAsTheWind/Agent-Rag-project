@@ -1,3 +1,5 @@
+"""报告查询与报告生成服务。"""
+
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -11,12 +13,20 @@ from server.schemas.common import AuthContext
 
 
 class ReportService:
+    """处理“个人使用报告”这条业务线。"""
+
     def resolve_target_user(
         self,
         db: Session,
         auth_context: AuthContext,
         target_account_code: str | None,
     ) -> User:
+        """解析本次要查询的目标用户。
+
+        规则：
+        - 默认查当前登录人自己
+        - 查别人时必须具备 report:read:any
+        """
         if target_account_code and target_account_code != auth_context.account_code:
             if "report:read:any" not in auth_context.permissions:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to read other reports")
@@ -31,6 +41,7 @@ class ReportService:
         return user
 
     def fetch_report(self, db: Session, auth_context: AuthContext, month: str, target_account_code: str | None = None) -> tuple[User, UserDeviceReport]:
+        """按用户 + 月份读取报告，并记录审计。"""
         target_user = self.resolve_target_user(db, auth_context, target_account_code)
         report = db.scalar(
             select(UserDeviceReport).where(
@@ -52,6 +63,10 @@ class ReportService:
         return target_user, report
 
     def generate_report_markdown(self, user: User, report: UserDeviceReport) -> str:
+        """把结构化报告数据转成给用户看的 Markdown。
+
+        有大模型时优先走模型生成；没有则走模板兜底。
+        """
         prompt = f"""请基于以下结构化信息生成中文 Markdown 报告，不要编造不存在的数据。
 标题固定为《扫地机器人使用情况报告与保养建议》。
 用户：{user.full_name}
@@ -82,6 +97,7 @@ class ReportService:
         )
 
     def latest_month_for_user(self, db: Session, user_id: UUID) -> str | None:
+        """查某个用户最新一条可用月报。"""
         rows = db.scalars(
             select(UserDeviceReport.month).where(UserDeviceReport.user_id == user_id).order_by(UserDeviceReport.month.desc())
         ).all()

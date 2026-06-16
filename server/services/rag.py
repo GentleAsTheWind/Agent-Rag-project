@@ -1,3 +1,12 @@
+"""RAG 服务。
+
+主要职责：
+1. 文档清洗与注入防护
+2. 检索（向量检索或本地词项检索兜底）
+3. 重排
+4. 生成最终答案与引用来源
+"""
+
 import hashlib
 import re
 from dataclasses import dataclass
@@ -32,19 +41,24 @@ class RagResult:
 
 
 class RagService:
+    """知识检索与基于证据回答。"""
+
     def __init__(self) -> None:
         self.settings = get_settings()
 
     def detect_prompt_injection(self, text: str) -> list[str]:
+        """识别知识文档中的可疑注入指令。"""
         lowered = text.lower()
         return [pattern for pattern in SUSPICIOUS_PATTERNS if pattern in lowered]
 
     def sanitize_content(self, text: str) -> str:
+        """清洗文档片段，剔除明显的恶意提示内容。"""
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         filtered = [line for line in lines if not self.detect_prompt_injection(line)]
         return "\n".join(filtered)[:12000]
 
     def compute_hash(self, text: str) -> str:
+        """计算文档/分片去重用哈希。"""
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def retrieve(
@@ -53,12 +67,18 @@ class RagService:
         query: str,
         filters: dict | None = None,
     ) -> list[tuple[KnowledgeChunk, float]]:
+        """统一检索入口。
+
+        - 有模型 API Key：走 pgvector
+        - 无模型 API Key：走本地词项检索
+        """
         filters = filters or {}
         if model_manager.available:
             return self._vector_retrieve(db, query, filters)
         return self._lexical_retrieve(db, query, filters)
 
     def _apply_filters(self, stmt: Select, filters: dict) -> Select:
+        """把元数据过滤条件叠加到 SQL 查询里。"""
         if category := filters.get("category"):
             stmt = stmt.where(KnowledgeChunk.category == category)
         if doc_type := filters.get("doc_type"):
@@ -68,6 +88,7 @@ class RagService:
         return stmt
 
     def _vector_retrieve(self, db: Session, query: str, filters: dict) -> list[tuple[KnowledgeChunk, float]]:
+        """基于 pgvector cosine distance 的主检索流程。"""
         query_embedding = model_manager.embed_text(query)
         distance = KnowledgeChunk.embedding.cosine_distance(query_embedding)
         stmt = (
@@ -83,6 +104,7 @@ class RagService:
         return reranked[: self.settings.rerank_top_k]
 
     def _lexical_retrieve(self, db: Session, query: str, filters: dict) -> list[tuple[KnowledgeChunk, float]]:
+        """无模型时的本地兜底检索。"""
         stmt = select(KnowledgeChunk).options(joinedload(KnowledgeChunk.document))
         stmt = self._apply_filters(stmt, filters)
         chunks = db.scalars(stmt).all()
@@ -98,6 +120,7 @@ class RagService:
         return scored[: self.settings.rerank_top_k]
 
     def _rerank(self, query: str, rows: list[tuple[KnowledgeChunk, float]]) -> list[tuple[KnowledgeChunk, float]]:
+        """对初召回结果做轻量重排。"""
         query_terms = self._terms(query)
         rescored: list[tuple[KnowledgeChunk, float]] = []
         for chunk, distance in rows:
@@ -109,6 +132,7 @@ class RagService:
         return rescored
 
     def answer_query(self, db: Session, query: str, filters: dict | None = None) -> RagResult:
+        """完整的 RAG 问答入口。"""
         rows = self.retrieve(db, query, filters)
         if not rows:
             return RagResult(answer="未找到足够依据。", citations=[], used_fallback=True)
@@ -145,6 +169,7 @@ class RagService:
         return RagResult(answer=rendered.strip(), citations=citations, used_fallback=False)
 
     def _fallback_answer(self, query: str, rows: list[tuple[KnowledgeChunk, float]]) -> str:
+        """没有大模型时，用证据拼接一个保守回答。"""
         top_snippets = [chunk.sanitized_content[:180] for chunk, _ in rows[:2]]
         summary = "；".join(top_snippets)
         if not summary:
@@ -152,6 +177,7 @@ class RagService:
         return f"根据检索到的资料，与你的问题“{query}”最相关的信息是：{summary}"
 
     def _terms(self, text: str) -> set[str]:
+        """把文本切成简单词项集合，用于词项匹配和重排。"""
         return set(re.findall(r"[\u4e00-\u9fff]|\w+", text.lower()))
 
 

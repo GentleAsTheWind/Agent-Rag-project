@@ -1,3 +1,5 @@
+"""报告查询 API。"""
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -17,6 +19,7 @@ def query_report(
     auth_context: AuthContext = Depends(get_current_auth_context),
     db: Session = Depends(get_db),
 ) -> ReportQueryResponse:
+    """直接查结构化报告，不经过通用 chat 路由。"""
     month = payload.month or report_service.latest_month_for_user(db, auth_context.user_id)
     if month is None:
         return ReportQueryResponse(report_markdown="未找到任何可用报告。", month="unknown", target_account_code=payload.target_account_code or auth_context.account_code or "")

@@ -1,3 +1,13 @@
+"""对话服务。
+
+这是 chat 接口真正的业务入口：
+1. 确认/创建 thread
+2. 保存用户消息
+3. 调用 LangGraph 工作流
+4. 保存助手回复
+5. 返回结构化响应
+"""
+
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -11,7 +21,10 @@ from server.schemas.common import AuthContext
 
 
 class ChatService:
+    """聊天主服务。"""
+
     def _ensure_thread(self, db: Session, auth_context: AuthContext, thread_id: UUID | None, title_hint: str) -> ConversationThread:
+        """查找已有会话，或者新建一个对话线程。"""
         if thread_id is not None:
             thread = db.scalar(
                 select(ConversationThread).where(
@@ -37,6 +50,7 @@ class ChatService:
         thread_id: UUID | None,
         client_context: dict | None,
     ) -> ChatResponse:
+        """处理一次完整聊天请求。"""
         thread = self._ensure_thread(db, auth_context, thread_id, message)
         db.add(ConversationMessage(thread_id=thread.id, role="user", content=message))
         db.commit()

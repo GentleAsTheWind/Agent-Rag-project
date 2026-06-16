@@ -1,3 +1,5 @@
+"""聊天 API。"""
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
@@ -18,5 +20,10 @@ def chat(
     auth_context: AuthContext = Depends(get_current_auth_context),
     db: Session = Depends(get_db),
 ) -> ChatResponse:
+    """统一聊天入口。
+
+    不管是 FAQ 还是报告，都会先从这个入口进入，
+    后续由 LangGraph 决定具体走哪条业务链。
+    """
     payload.client_context.setdefault("request_id", getattr(request.state, "request_id", "-"))
     return chat_service.handle_chat(db, auth_context, payload.message, payload.thread_id, payload.client_context)

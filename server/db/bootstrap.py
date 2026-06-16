@@ -1,3 +1,13 @@
+"""数据库初始化与种子数据灌入。
+
+这个模块承担“本地单机生产仿真”的冷启动准备：
+1. 创建扩展
+2. 建表
+3. 灌权限/角色
+4. 灌默认用户
+5. 从 CSV 导入用户报告样例数据
+"""
+
 import csv
 from pathlib import Path
 
@@ -25,10 +35,13 @@ DEFAULT_USERS = [
 
 
 class DatabaseBootstrapper:
+    """数据库启动自举器。"""
+
     def __init__(self) -> None:
         self.settings = get_settings()
 
     def bootstrap(self) -> None:
+        """执行完整自举流程。"""
         with engine.begin() as connection:
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -39,6 +52,12 @@ class DatabaseBootstrapper:
             self._seed_reports(db)
 
     def _seed_permissions_roles(self, db: Session) -> None:
+        """初始化权限点和角色。
+
+        当前只做最小 RBAC：
+        - user
+        - admin
+        """
         permissions: dict[str, Permission] = {}
         for permission_name in {item for values in ROLE_PERMISSIONS.values() for item in values}:
             permission = db.scalar(select(Permission).where(Permission.name == permission_name))
@@ -58,6 +77,7 @@ class DatabaseBootstrapper:
         db.commit()
 
     def _seed_users(self, db: Session) -> None:
+        """初始化默认测试账号。"""
         user_role = db.scalar(select(Role).where(Role.name == "user"))
         admin_role = db.scalar(select(Role).where(Role.name == "admin"))
         for item in DEFAULT_USERS:
@@ -79,6 +99,7 @@ class DatabaseBootstrapper:
         db.commit()
 
     def _seed_reports(self, db: Session) -> None:
+        """从 CSV 导入用户月报样例数据到 user_device_reports。"""
         report_path = Path(self.settings.report_csv_path)
         if not report_path.exists():
             return

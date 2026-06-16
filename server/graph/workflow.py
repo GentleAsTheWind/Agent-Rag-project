@@ -1,3 +1,9 @@
+"""LangGraph 工作流定义。
+
+可以把它理解成一个显式的“状态机 + 路由器”，
+不再把所有业务流程都交给单个 ReAct Agent 去自由发挥。
+"""
+
 from datetime import datetime
 
 from fastapi import HTTPException
@@ -15,7 +21,10 @@ FAQ_INTENTS = {"product_qa", "troubleshooting", "maintenance", "purchase_advice"
 
 
 class WorkflowEngine:
+    """聊天业务工作流引擎。"""
+
     def __init__(self) -> None:
+        """构建 LangGraph 状态图。"""
         graph = StateGraph(WorkflowState)
         graph.add_node("intent_classifier", self.intent_classifier)
         graph.add_node("policy_guard", self.policy_guard)
@@ -52,15 +61,18 @@ class WorkflowEngine:
         self.app = graph.compile()
 
     def invoke(self, state: WorkflowState) -> WorkflowState:
+        """执行一次工作流。"""
         return self.app.invoke(state)
 
     def intent_classifier(self, state: WorkflowState) -> WorkflowState:
+        """第一步：识别用户意图。"""
         result = intent_service.classify(state["user_message"], state.get("client_context"))
         state["intent_result"] = result
         state.setdefault("decision_log", []).append(f"intent={result.intent}:{result.confidence}")
         return state
 
     def route_from_intent(self, state: WorkflowState) -> str:
+        """根据意图、风险和置信度决定后续节点。"""
         result = state["intent_result"]
         if result.risk_level == "high":
             return "handoff"
@@ -69,6 +81,7 @@ class WorkflowEngine:
         return "policy_guard"
 
     def policy_guard(self, state: WorkflowState) -> WorkflowState:
+        """第二步：做权限闸门。"""
         auth = state["auth_context"]
         result = state["intent_result"]
 
@@ -88,9 +101,11 @@ class WorkflowEngine:
         return state
 
     def route_after_policy(self, state: WorkflowState) -> str:
+        """返回权限校验后的下一跳。"""
         return state["route_after_policy"]
 
     def faq_rag(self, state: WorkflowState) -> WorkflowState:
+        """FAQ/选购/保养/故障场景，走知识库检索问答。"""
         result = rag_service.answer_query(state["db"], state["user_message"], state.get("client_context"))
         state["final_answer"] = result.answer
         state["citations"] = result.citations
@@ -105,6 +120,7 @@ class WorkflowEngine:
         return state
 
     def report_fetch(self, state: WorkflowState) -> WorkflowState:
+        """报告场景，先查数据库里的结构化报告数据。"""
         auth = state["auth_context"]
         result = state["intent_result"]
         month = result.resolved_month
@@ -132,6 +148,7 @@ class WorkflowEngine:
         return state
 
     def report_generate(self, state: WorkflowState) -> WorkflowState:
+        """把 report_fetch 的结构化数据转成最终 Markdown 报告。"""
         payload = state.get("report_payload")
         if not payload:
             state["final_answer"] = state.get("final_answer", "未找到足够依据。")
@@ -141,6 +158,7 @@ class WorkflowEngine:
         return state
 
     def fallback(self, state: WorkflowState) -> WorkflowState:
+        """低置信度兜底回复。"""
         result = state.get("intent_result")
         if result and result.required_entities:
             state["final_answer"] = f"需要补充这些信息后才能继续：{', '.join(result.required_entities)}。"
@@ -150,6 +168,7 @@ class WorkflowEngine:
         return state
 
     def handoff(self, state: WorkflowState) -> WorkflowState:
+        """高风险/越权请求转人工。"""
         state["final_answer"] = "该请求存在越权或高风险特征，已建议转人工处理。"
         state["citations"] = []
         return state
