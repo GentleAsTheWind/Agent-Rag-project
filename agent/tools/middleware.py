@@ -9,9 +9,6 @@ from langgraph.types import Command
 from codes.logger_handler import logger
 
 
-# Deleted:from codes.prompt_loader import load_report_prompts, load_system_prompts
-
-
 @wrap_tool_call
 def monitor_tool(
         request: ToolCallRequest,
@@ -26,9 +23,7 @@ def monitor_tool(
 
         if request.tool_call["name"] == "fill_context_for_report":
             if request.runtime is not None:
-                print("sdkfjdkf")
                 if request.runtime.context is None:
-                    print("fkdsjk")
                     request.runtime.context = {}
                 request.runtime.context["report"] = True
         return result
@@ -40,20 +35,17 @@ def monitor_tool(
 @before_model
 def log_before_model(
         state: AgentState,
-        # Deleted:        # 整个Agent智能体中的状态记录
         runtime: Runtime,
-        # Deleted:        # 记录了整个执行过程中的上下文信息
 ):
-    # Deleted:    # 在模型执行前输出日志
+    """在模型执行前记录日志"""
     logger.info(f"[log_before_model]即将调用模型，带有{len(state['messages'])}条消息。")
-
     logger.debug(f"[log_before_model]{type(state['messages'][-1]).__name__} | {state['messages'][-1].content}")
-
     return None
 
 
 @dynamic_prompt
 def report_prompt_switch(request: ModelRequest):
+    """根据运行时上下文动态切换提示词"""
     from codes.prompt_loader import load_report_prompts, load_system_prompts
 
     if request.runtime is None or request.runtime.context is None:
@@ -61,7 +53,7 @@ def report_prompt_switch(request: ModelRequest):
 
     is_report = request.runtime.context.get("report", False)
     if is_report:
-        print("******" * 20)
+        logger.debug("[report_prompt_switch]切换到报告生成提示词")
         return load_report_prompts()
 
     return load_system_prompts()

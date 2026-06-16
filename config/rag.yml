@@ -1,0 +1,4 @@
+# RAG服务专用模型配置（当前未启用，RAG服务实际使用agent.yml中的模型配置）
+# 如需为RAG服务指定独立的模型，可在rag_service.py中加载此配置
+chat_model_name: "qwen3.7-plus"
+embedding_model_name: "text-embedding-v3"

@@ -5,9 +5,10 @@ from langchain_core.prompts import PromptTemplate
 from codes.prompt_loader import load_rag_prompts
 from model.factory import chat_model
 from rag.vector_store import VectorStoreService
-from agent.tools.middleware import log_before_model
+from codes.logger_handler import logger
 
 
+# 打印prompt
 def print_prompt(prompt):
     print("----" * 20)
     print(prompt.to_string())
@@ -22,19 +23,17 @@ class RagSummaryService:
         self.prompt_text = load_rag_prompts()
         self.prompt_template = PromptTemplate.from_template(self.prompt_text)
         self.model = chat_model
-        self.chain = self._intit_chain()
+        self.chain = self._init_chain()
 
-    def _intit_chain(self):
-        chain = self.prompt_template |print_prompt | self.model | StrOutputParser()
+    def _init_chain(self):
+        chain = self.prompt_template | print_prompt | self.model | StrOutputParser()
         return chain
 
-    def retriver_docs(self, query: str) -> list[Document]:
+    def retrieve_docs(self, query: str) -> list[Document]:
         return self.retriever.invoke(query)
 
-
-
     def generate_summary(self, query: str) -> str:
-        docs: list[Document] = self.retriver_docs(query)
+        docs: list[Document] = self.retrieve_docs(query)
         context = ""
         count = 0
         for doc in docs:

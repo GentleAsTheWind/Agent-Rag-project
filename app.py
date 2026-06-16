@@ -1,120 +1,162 @@
+import os
+
+import requests
 import streamlit as st
-from agent.react_agent import ReactAgent
+from streamlit.errors import StreamlitSecretNotFoundError
+
+
+def resolve_api_base_url() -> str:
+    env_value = os.getenv("STREAMLIT_API_BASE_URL")
+    if env_value:
+        return env_value
+
+    try:
+        return st.secrets.get("api_base_url", "http://127.0.0.1:8000")
+    except StreamlitSecretNotFoundError:
+        return "http://127.0.0.1:8000"
+
+
+API_BASE_URL = resolve_api_base_url()
+
 
 st.set_page_config(
     page_title="智能扫地机器人客服",
     page_icon="🤖",
-    layout="centered"
+    layout="centered",
 )
 
-st.markdown("""
+st.markdown(
+    """
 <style>
     .main-header {
         text-align: center;
         padding: 2rem 0;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 15px;
-        margin-bottom: 2rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        background: linear-gradient(135deg, #0f766e 0%, #164e63 100%);
+        border-radius: 18px;
+        margin-bottom: 1.5rem;
     }
     .main-header h1 {
         color: white;
-        font-size: 2.5rem;
         margin: 0;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
     }
     .main-header p {
-        color: rgba(255, 255, 255, 0.9);
-        font-size: 1.1rem;
-        margin-top: 0.5rem;
-    }
-    .stChatMessage {
-        border-radius: 15px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-    }
-    .stChatInputContainer {
-        padding: 1rem 0;
-        border-top: 2px solid #f0f0f0;
-        margin-top: 1rem;
-    }
-    div[data-testid="stChatMessageContent"] {
-        font-size: 1rem;
-        line-height: 1.6;
+        color: rgba(255,255,255,0.88);
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-st.markdown("""
+st.markdown(
+    """
 <div class="main-header">
-    <h1>🤖 智能扫地机器人客服</h1>
-    <p>为您提供专业的扫地机器人咨询服务</p>
+    <h1>智能扫地机器人客服</h1>
+    <p>生产化 API 的 Streamlit 演示入口</p>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-if 'agent' not in st.session_state:
-    st.session_state.agent = ReactAgent()
 
-if 'messages' not in st.session_state:
+def api_request(method: str, path: str, token: str | None = None, json: dict | None = None) -> requests.Response:
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return requests.request(method, f"{API_BASE_URL}{path}", headers=headers, json=json, timeout=60)
+
+
+if "access_token" not in st.session_state:
+    st.session_state.access_token = ""
+if "refresh_token" not in st.session_state:
+    st.session_state.refresh_token = ""
+if "messages" not in st.session_state:
     st.session_state.messages = []
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = None
 
-if 'auto_question' not in st.session_state:
-    st.session_state.auto_question = ""
+
+with st.sidebar:
+    st.header("登录")
+    username = st.text_input("用户名", value="user1001")
+    password = st.text_input("密码", value="user1001", type="password")
+    if st.button("获取令牌", use_container_width=True):
+        response = api_request("POST", "/auth/login", json={"username": username, "password": password})
+        if response.ok:
+            payload = response.json()
+            st.session_state.access_token = payload["access_token"]
+            st.session_state.refresh_token = payload["refresh_token"]
+            st.success("登录成功")
+        else:
+            st.error(response.text)
+
+    st.caption("示例账号：`user1001/user1001`、`admin/admin123`")
+    st.markdown("---")
+    st.header("常见问题")
+    for question in [
+        "小户型适合哪种扫地机器人？",
+        "扫地机器人如何维护保养？",
+        "扫拖一体机器人值得买吗？",
+        "查询我2025-01的使用报告",
+        "扫地机器人回充失败怎么办？",
+    ]:
+        if st.button(question, use_container_width=True):
+            st.session_state.pending_question = question
+    if st.button("清空会话", use_container_width=True):
+        st.session_state.messages = []
+        st.session_state.thread_id = None
+        st.rerun()
+
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"], avatar="👤" if message["role"] == "user" else "🤖"):
         st.markdown(message["content"])
 
-st.markdown("---")
 
-def handle_user_input(prompt):
-    """处理用户输入并获取助手回复"""
+def send_message(prompt: str) -> None:
     st.session_state.messages.append({"role": "user", "content": prompt})
-    
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
-    
+
     with st.chat_message("assistant", avatar="🤖"):
-        message_placeholder = st.empty()
-        full_response = ""
-        
-        with st.spinner("正在思考..."):
-            for chunk in st.session_state.agent.execute_stream(prompt):
-                full_response += chunk
-                message_placeholder.markdown(full_response + "▌")
-        
-        cleaned_response = full_response.strip()
-        if cleaned_response.lower().startswith(prompt.lower()):
-            cleaned_response = cleaned_response[len(prompt):].strip()
-        
-        message_placeholder.markdown(cleaned_response)
-    
-    st.session_state.messages.append({"role": "assistant", "content": cleaned_response})
+        placeholder = st.empty()
+        if not st.session_state.access_token:
+            answer = "请先在左侧登录，再发起对话。"
+            placeholder.markdown(answer)
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+            return
 
-if st.session_state.auto_question:
-    handle_user_input(st.session_state.auto_question)
-    st.session_state.auto_question = ""
-elif prompt := st.chat_input("请输入您的问题，例如：小户型适合哪种扫地机器人？"):
-    handle_user_input(prompt)
+        response = api_request(
+            "POST",
+            "/chat",
+            token=st.session_state.access_token,
+            json={
+                "thread_id": st.session_state.thread_id,
+                "message": prompt,
+                "stream": False,
+                "client_context": {},
+            },
+        )
+        if not response.ok:
+            answer = f"请求失败：{response.text}"
+            placeholder.markdown(answer)
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+            return
 
-with st.sidebar:
-    st.header("💡 常见问题")
-    faq_questions = [
-        "小户型适合哪种扫地机器人？",
-        "扫地机器人如何维护保养？",
-        "扫拖一体机器人值得买吗？",
-        "扫地机器人常见故障有哪些？",
-        "如何选择适合的扫地机器人？"
-    ]
-    
-    st.markdown("**点击快速提问：**")
-    for question in faq_questions:
-        if st.button(question, use_container_width=True, type="secondary"):
-            st.session_state.auto_question = question
-            st.rerun()
-    
-    st.markdown("---")
-    if st.button("🗑️ 清空对话历史", use_container_width=True):
-        st.session_state.messages = []
-        st.rerun()
+        payload = response.json()
+        st.session_state.thread_id = payload["thread_id"]
+        citations = payload.get("citations", [])
+        answer = payload["answer"]
+        if citations:
+            answer = answer + "\n\n**引用来源**\n" + "\n".join(
+                f"- {item['source']} / {item['chunk_id']}" for item in citations
+            )
+        placeholder.markdown(answer)
+        st.session_state.messages.append({"role": "assistant", "content": answer})
+
+
+pending_question = st.session_state.pop("pending_question", None)
+if pending_question:
+    send_message(pending_question)
+
+if prompt := st.chat_input("请输入问题，例如：查询我2025-01的使用报告"):
+    send_message(prompt)

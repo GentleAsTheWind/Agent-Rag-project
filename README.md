@@ -1,56 +1,124 @@
-# 🤖 智能扫地机器人客服 Agent
+# Agent-RAG Production Demo
 
-基于 LangChain 和 RAG 技术构建的智能客服系统，专为扫地机器人领域提供专业咨询服务。
-![img_1.png](img_1.png)
-## ✨ 功能特性
+这个仓库现在同时包含两套入口：
 
-- **智能问答**：基于 RAG 的知识检索与生成
-- **多工具支持**：天气查询、用户信息获取、外部数据 fetch 等
-- **流式输出**：实时响应，提升用户体验
-- **Streamlit 界面**：友好的可视化交互界面
-- **常见问题快捷入口**：一键提问高频问题
+- `server.main:app`
+  面向生产化改造后的 FastAPI 服务，包含 JWT/RBAC、PostgreSQL/pgvector、LangGraph 工作流、RAG 检索与报告查询。
+- `app.py`
+  仅作为 Streamlit 演示 UI，调用本地 FastAPI 接口，不再直接执行 Agent。
 
-## 🚀 快速开始
+## 已完成的生产化改造
 
-### 环境要求
+- FastAPI API 层
+- PostgreSQL + pgvector 存储层
+- JWT 认证与最小 RBAC
+- LangGraph 显式意图路由
+- 报告查询权限流
+- 文档离线入库与向量检索
+- 引用来源返回
+- 无答案时拒答
+- 本地 Python 3.12 / PostgreSQL 17 仿真环境
 
-- Python 3.10+
-- LangChain 1.0+
+## 本地环境
 
-### 安装依赖
-pip install -r requirements.txt
-### 启动应用
-streamlit run app.py
-访问 `http://localhost:8501` 即可使用。
-## 🛠️ 技术栈
+- Python：`G:\devTools\Python312\python.exe`
+- PostgreSQL：`G:\devTools\PostgreSQL\17`
+- 数据目录：`G:\devTools\PostgreSQL\data`
+- 日志目录：`G:\devTools\PostgreSQL\logs`
+- 数据库：`agent_rag`
+- 应用用户：`agent_app`
+- PostgreSQL 服务名：`postgresql-agent-rag`
 
-- **框架**：LangChain 1.0
-- **向量数据库**：ChromaDB
-- **前端**：Streamlit
-- **模型**：通过 `model/factory.py` 统一管理
+## 安装与启动
 
-## 📝 配置说明
+### 1. 创建虚拟环境
 
-所有配置集中在 `config/` 目录：
+```powershell
+G:\devTools\Python312\python.exe -m venv .venv312
+.\.venv312\Scripts\python.exe -m pip install -r requirements.txt
+```
 
-- `agent.yml`：Agent 行为配置
-- `chroma.yml`：向量数据库路径与参数
-- `prompts.yml`：系统提示词与管理提示词
-- `rag.yml`：RAG 检索与分块配置
+### 2. 准备环境变量
 
-## 💡 使用示例
+复制 `.env.example` 为 `.env`，按需修改：
 
-启动应用后，你可以：
-![img.png](img.png)
-1. 直接在输入框提问
-2. 点击侧边栏"常见问题"快速咨询
-3. 查看完整对话历史
-4. 清空历史记录重新开始
+```env
+DATABASE_URL=postgresql+psycopg://agent_app:AgentApp!2026@127.0.0.1:5432/agent_rag
+JWT_SECRET_KEY=replace-this-local-dev-secret
+AI_DASHSCOPE_API_KEY=
+```
 
-## 📄 License
+如果不提供 `AI_DASHSCOPE_API_KEY`，系统会使用本地哈希 embedding 和模板化生成兜底，仍可完成开发联调。
 
-本项目采用 MIT License
+### 3. 启动 API
 
+```powershell
+.\.venv312\Scripts\python.exe -m uvicorn server.main:app --host 127.0.0.1 --port 8000
+```
 
+首次启动会自动：
 
+- 创建表结构
+- 初始化权限、角色、用户
+- 导入 `data/external/records.csv`
+- 导入 `data/` 下的知识文件到 pgvector
 
+### 4. 启动 Streamlit 演示 UI
+
+```powershell
+.\.venv312\Scripts\python.exe -m streamlit run app.py
+```
+
+## 默认账号
+
+- 普通用户：`user1001 / user1001`
+- 普通用户：`user1002 / user1002`
+- 管理员：`admin / admin123`
+
+默认权限：
+
+- `user`：`kb:read`, `report:read:self`
+- `admin`：`kb:read`, `report:read:self`, `report:read:any`, `admin:knowledge:write`
+
+## API 概览
+
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `GET /me`
+- `POST /chat`
+- `GET /conversations/{thread_id}`
+- `POST /reports/query`
+- `POST /knowledge/ingest`
+- `GET /health`
+- `GET /ready`
+
+## LangGraph 路由
+
+- `intent_classifier`
+- `policy_guard`
+- `faq_rag`
+- `report_fetch`
+- `report_generate`
+- `fallback`
+- `handoff`
+
+当前显式意图：
+
+- `product_qa`
+- `troubleshooting`
+- `maintenance`
+- `purchase_advice`
+- `personal_report`
+- `unknown`
+
+## 测试
+
+```powershell
+.\.venv312\Scripts\python.exe -m pytest -p no:cacheprovider tests
+```
+
+## 说明
+
+- 老的 `agent/`、`rag/`、`model/` 目录仍保留，便于对比原始 demo 与生产化实现。
+- 当前没有接入 Redis，限流和会话黑名单是本地可替换实现。
+- 若需要进一步收敛到真正生产环境，下一步建议补 Alembic 迁移脚本、Redis、对象存储和评测流水线。
